@@ -3,7 +3,7 @@ use ExtUtils::MakeMaker;
 WriteMakefile(
     'NAME'	         => 'Template::Plugin::DBI',
     'VERSION_FROM'   => 'DBI.pm',
-    PREREQ_PM        => { Template => 1.00, DBI => 0 },
+    PREREQ_PM        => { Template => 1.04, DBI => 0 },
     'dist'           => {
 		'COMPRESS' => 'gzip',
 		'SUFFIX'   => 'gz',

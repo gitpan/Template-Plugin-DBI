@@ -18,7 +18,7 @@
 #
 #------------------------------------------------------------------------------
 #
-# $Id: DBI.pm,v 1.9 1999/12/17 06:43:54 sam Exp $
+# $Id: DBI.pm,v 1.10 2000/03/17 09:14:54 sam Exp $
 # 
 #==============================================================================
 
@@ -41,7 +41,7 @@ use Template::Exception;
 
 @ISA = qw(Template::Plugin Template::Iterator);
 
-$VERSION = sprintf("%02.2f", sprintf("%d.%02d", q$Revision: 1.9 $ =~ /(\d+)\.(\d+)/) - 1);
+$VERSION = sprintf("%02.2f", sprintf("%d.%02d", q$Revision: 1.10 $ =~ /(\d+)\.(\d+)/) - 1);
 
 $DEBUG = 0;
 
@@ -271,6 +271,7 @@ sub connect {
 	$self->_connect(@connect);
 
 	if ($self->{ _DBH }) {
+		return '';
 		return ('', STATUS_OK);
 	};
 
@@ -357,7 +358,9 @@ sub execute {
 
 	# return us as an iterator when we do an execute if all is OK
 	# this means that we can use execute directly in the template
-	return ($self, STATUS_OK);
+
+	# return ($self, STATUS_OK);
+	return $self;
 }
 
 
@@ -509,6 +512,7 @@ sub get_next {
 
 	# change 'undef' in the hash to prevent undef warnings
 	foreach (keys %$hash) {
+		print STDERR "Data [$_] -> [$hash->{ $_ }]\n" if $DEBUG;
 		$hash->{ $_ } = '' unless defined($hash->{$_});
 	}
 
@@ -646,7 +650,7 @@ sub _position_hash {
 	print "_position_hash($name) called\n" if $DEBUG;
 
 	# get the position
-	my $pos = $self->{ _POSITION } || $self->{ _POSITION } || return;
+	my $pos = $self->{ _POSITION } || return;
 
 	# if what we have is an arrayref then this is the factory so
 	# get the first element (which should be a HASH)
@@ -671,6 +675,8 @@ sub _position_hash {
 
 sub _fetchrow {
 	my $self = shift;
+
+	print STDERR "_fetchrow called\n" if $DEBUG;
 
 	# clear the rowcache
 	$self->{ _ROWCACHE } = undef;
