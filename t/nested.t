@@ -4,14 +4,12 @@
 #
 # Test script testing nested queries.
 #
-# Written by Andy Wardley <abw@cre.canon.co.uk>
-#
-# Modifications by Simon Matthews <sam@knowledgepool.com>
+# Written by Simon Matthews <sam@knowledgepool.com>
 #
 # This is free software; you can redistribute it and/or modify it
 # under the same terms as Perl itself.
 #
-# $Id: nested.t,v 1.3 1999/12/17 06:40:07 sam Exp $
+# $Id: nested.t,v 1.4 2000/09/20 07:31:16 sam Exp $
 #
 #========================================================================
 
@@ -33,7 +31,8 @@ my $dsn = $ENV{ DBI_DSN } || do {
 my $user = $ENV{ DBI_USER } || '';
 my $pass = $ENV{ DBI_PASS } || '';
 
-
+# $Template::Parser::DEBUG = 1;
+# $Template::Directive::PRETTY = 1;
 my $dbh = init_database($dsn,$user,$pass);
 
 test_expect(\*DATA, undef, { dsn  => $dsn,
@@ -170,7 +169,7 @@ __DATA__
                              ORDER BY id") -%]
    User: [% user.name %] ([% user.id %])
 [% END -%]
-[% "last group" if DBI.last %]
+[% "last group" IF loop.last %]
 [% END %]
 
 -- expect --
@@ -182,12 +181,3 @@ __DATA__
    User: Andy Wardley (abw)
    User: Simon Matthews (sam)
 last group
-
-
--- test --
-SAM
--- expect --
-SAM
-
-
-

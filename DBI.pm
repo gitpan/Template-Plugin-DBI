@@ -4,21 +4,23 @@
 #
 # DESCRIPTION
 #
-# A Template Plugin to provide access to a DBI data source
+#   A Template Toolkit plugin to provide access to a DBI data source.
 #
 # AUTHOR
 #   Simon Matthews <sam@knowledgepool.com>
 #
+#   Many updates thanks to Andy Wardley for tidying up the interface
+#
 # COPYRIGHT
 #
-#   Copyright (C) 1999 Simon Matthews.  All Rights Reserved
+#   Copyright (C) 1999-2000 Simon Matthews.  All Rights Reserved
 #
 #   This module is free software; you can redistribute it and/or
 #   modify it under the same terms as Perl itself.
 #
 #------------------------------------------------------------------------------
 #
-# $Id: DBI.pm,v 1.10 2000/03/17 09:14:54 sam Exp $
+# $Id: DBI.pm,v 1.11 2000/09/20 07:35:22 sam Exp $
 # 
 #==============================================================================
 
@@ -27,705 +29,511 @@ package Template::Plugin::DBI;
 require 5.004;
 
 use strict;
-use vars qw(@ISA $VERSION $DEBUG $AUTOLOAD);
-use Template::Constants qw(:status);
-use DBI;
-use Data::Dumper;
-
-# we are going to be a plug in so.....
 use Template::Plugin;
-
-# we are a Template::Iterator so that we can be called in a FOREACH context
-use Template::Iterator;
 use Template::Exception;
+use DBI;
 
-@ISA = qw(Template::Plugin Template::Iterator);
+use vars qw(@ISA $VERSION $DEBUG $AUTOLOAD);
+use base qw( Template::Plugin Template::Base );
 
-$VERSION = sprintf("%02.2f", sprintf("%d.%02d", q$Revision: 1.10 $ =~ /(\d+)\.(\d+)/) - 1);
+$VERSION = sprintf("%d.%02d", q$Revision: 1.11 $ =~ /(\d+)\.(\d+)/) - 1;
+$DEBUG    = 0 unless defined $DEBUG;
 
-$DEBUG = 0;
 
-#==============================================================================
+    
+#========================================================================
 #                      -----  CLASS METHODS -----
-#==============================================================================
+#========================================================================
 
-#==============================================================================
-#
-# new($context, \@params)
+# sub load {
+
+	# print STDERR "Class [$_[0]]\n";
+	# return $_[0];
+
+# }
+
+#------------------------------------------------------------------------
+# new($context, @params)
 # 
-# Returns a new DBI Plugin that will then be used to provide access to a number
-# of methods that can then be used from within a Template
+# Returns a new DBI Plugin that will then be used to provide access to a 
+# number of methods that can then be used from within a Template
 #
 # By default a new unconfigured object is returned.  However it is possible
 # to pass either a single string that is taken to be a DBI connect string, or
 # a hash containing a number of configuration values
-#
-#==============================================================================
+#------------------------------------------------------------------------
 
 sub new {
-	my $self    = shift;
-	my $context = shift;
-	my $class   = ref($self) || $self;
+    my $class   = shift;
+    my $context = shift;
 
-	# check to see if we got a valid context so that we can throw errors
-	unless (ref $context) {
+	my $self;
 
-		$context = undef;
-		# warn "context is invalid [$context]\n" if $DEBUG;
-		# $context = new Template::Exception;
+	print STDERR "DBI new class is [$class]\n" if $DEBUG;
+
+	if (ref $class) {
+		$self = $class;
+		$class = ref $self;
+
+	} else {
+    	$self = bless {
+		_CONTEXT => $context, 
+    	}, $class;
 	}
 
-	$self = bless { _CONTEXT => $context, ERRSTR => '' }, $class;
+    $self->connect(@_) if @_;
 
-	$self->{ _POSITION } = [];
-
-
-	# call connect now if we have a parameter
-	# note this may fail (which could be ok) if the parameter is a HASH
-	# that does not contain the connection details at this time
-	$self->connect(@_) if @_;
-
-	print STDERR "New returns [$self]\n" if $DEBUG;
-	# return this object
 	return $self;
 }
 
 
-#==============================================================================
+#========================================================================
+#                        -- PUBLIC OBJECT METHODS --
+#========================================================================
+
+#------------------------------------------------------------------------
+# connect($data_source, $username, $password)
+# connect( { data_source = 'dbi:driver:database' 
+#	     username    = 'foo' 
+#	     password    = 'bar' } )
 #
-# sub DESTROY
+# Connection method for the plugin which makes a DBI connection.  Returns
+# a DBI handle or undef on error.
+#------------------------------------------------------------------------
+
+sub connect {
+    my $self = shift;
+    my $init = shift;
+    my @connect = ();
+
+    print STDERR "REF init is [", ref $init, "]\n" if $DEBUG;
+    
+    if (ref $init eq 'HASH') {
+        # get the data source
+	my $dsn = 
+	        $init->{ data_source } 
+	     || $init->{ connect } 
+	     || $init->{ dbi_connect }
+	     || $init->{ db_connect } 
+	     || return $self->_throw('data source not defined');
+	push(@connect, $dsn);
+
+	# get the username parameter
+	push(@connect, 
+	        $init->{ username } 
+	     || $init->{ user } 
+	     || $init->{ dbi_username } 
+	     || $init->{ db_username } 
+	     || '');
+
+	# get the password parameter
+	push(@connect, 
+	        $init->{ password } 
+	     || $init->{ passwd } 
+	     || $init->{ dbi_password } 
+	     || $init->{ db_password } 
+	     || '');
+    } elsif ($init) {
+		@connect = ($init, @_);
+    }
+    else {
+		return $self->_throw('connection parameters not defined');
+    }
+
+    $self->_connect(@connect);
+
+	return '';
+}
+
+
+#------------------------------------------------------------------------
+# prepare($sql)
+#
+# Prepare a query and store the live statement handle internally for
+# subsequent execute() calls.
+#------------------------------------------------------------------------
+
+sub prepare {
+    my $self = shift;
+    my $sql  = shift || return undef;
+
+    my $dbh = $self->{ _DBH }
+	|| return $self->_throw('no connection');
+
+    my $sth = $dbh->prepare($sql) 
+	|| return $self->_throw("Prepare failed: $DBI::errstr");
+    
+    # create wrapper object around handle to return to template client
+    return ($self->{ _STH } = Template::Plugin::DBI::Query->new($sth));
+}
+
+
+#------------------------------------------------------------------------
+# execute(@params)
+#
+# Execute the current statement handle created by prepare().
+#------------------------------------------------------------------------
+
+sub execute {
+    my $self = shift;
+
+    my $sth = $self->{ _STH } 
+	|| return $self->_throw('no query prepared');
+
+    $sth->execute(@_) 
+}
+
+
+
+#------------------------------------------------------------------------
+# query($sql, @params)
+#
+# Prepare and execute a query in one.
+#------------------------------------------------------------------------
+
+sub query {
+    my $self = shift;
+    my $sql  = shift || return undef;
+
+    my $dbh = $self->{ _DBH }
+	|| return $self->_throw('no connection');
+    my $sth = $dbh->prepare($sql) 
+	|| return $self->_throw("Prepare failed: $DBI::errstr");
+    
+    $sth->execute(@_) 
+	|| return $self->_throw("DBI execute failed: $DBI::errstr");
+
+    $self->{ _LAST_RESULT } = Template::Plugin::DBI::Iterator->new($sth);
+}
+
+
+#------------------------------------------------------------------------
+# do($sql)
+#
+# Prepares and executes an sql statement.
+#------------------------------------------------------------------------
+
+sub do {
+    my $self = shift;
+    my $sql  = shift || return '';
+
+    # get a database connection
+    my $dbh = $self->{ _DBH }
+	|| return $self->_throw('no connection');
+
+    return $dbh->do($sql) 
+	|| $self->_throw("DBI do failed: $DBI::errstr");
+}
+
+
+#------------------------------------------------------------------------
+# quote($value [, $data_type ])
+#
+# Returns a quoted string (correct for the connected database) from the 
+# value passed in.
+#------------------------------------------------------------------------
+
+sub quote {
+    my $self = shift;
+
+    my $dbh = $self->{ _DBH }
+	|| return $self->_throw('no connection');
+
+    $dbh->quote(@_);
+}
+
+
+#------------------------------------------------------------------------
+# error($error)
+#
+# Returns the current internal error value stored in ERRSTR if called
+# without any arguments.  If $error is specified then this value is 
+# used to update ERRSTR and undef is returned.
+#------------------------------------------------------------------------
+
+sub error {
+    my $self = shift;
+
+    if (@_) {
+	$self->{ ERRSTR } = join('', @_);
+        return undef;
+    }
+    else {
+	return $self->{ ERRSTR };
+    }
+}
+
+
+#------------------------------------------------------------------------
+# DESTROY
 #
 # Called automatically on the death of the object. Simply disconnects the 
 # database handle cleanly
-#
-#==============================================================================
+#------------------------------------------------------------------------
 
 sub DESTROY {
-	my $self = shift;
-
-	# check that we finish all open statement handles
-	print STDERR "DESTROY [$self]\n" if $DEBUG;
-
-	$self->{ _STH }->finish() if $self->{ _STH };
-
-	# check if we are a clone
-	if ($self->{ _CLONE } && $self->{ _PARENT }) {
-		$self->{ _PARENT }->_clone_died();
-		return;
-	}
-
-	# we only do this if we created the connection
-	$self->{ _DBH }->disconnect() if $self->{ _DBH };
-	
+    my $self = shift;
+    undef $self->{ _LAST_RESULT };
+    $self->{ _DBH }->disconnect() if $self->{ _DBH };
 }
 
 
-#==============================================================================
-#
+#------------------------------------------------------------------------
 # AUTOLOAD
 #
-# Automagically returns data from ourself
-#
-#==============================================================================
+# Delegates all undefined method calls to the most recent result 
+# iterator.
+#------------------------------------------------------------------------
 
 sub AUTOLOAD {
-	my $self   = shift;
-	my $method = $AUTOLOAD;
+    my $self   = shift;
+    my $method = $AUTOLOAD;
+    my $result;
 
-	# ignore the destuctor
-	$method =~ /::DESTROY$/ && return;
+    $method =~ s/.*:://;
+    return if $method eq 'DESTROY';
 
-	# save a copy of the ARGS as the function may need them
-	my (@args) = @_;
+    # delegate to the most recent result iterator
+    $result = $self->{ _LAST_RESULT }
+        || return $self->_throw("no such method: $method");
 
-	my $param = shift(@args);
-
-	print STDERR "Autoload for $AUTOLOAD on $self\n" if $DEBUG;
-
-	my $context = $self->{ _CONTEXT } || return;
-
-	# remove the package prefix
-	$method =~ s/.*:://;
-
-	# translate the name to uppercase
-	$method =~ tr/a-z/A-Z/;
-
-	# check that the data exists in self
-	if (defined( $self->{ $method })) {
-		return $self->{ $method } || '';
-	} else {
-		# try to call the method on DBI so that errstr etc will work as
-		# advertised
-		eval { return DBI->$method(@_); };
-
-		return $self->_throw("no such method: $method");
-	}
-}
-
-#==============================================================================
-#
-# first()
-#
-# returns the value of 'FIRST' in the current position HASH
-# 
-#==============================================================================
-
-sub first { 
-	my $self = shift;
-	$self->_position_hash('FIRST');
+    $result->$method(@_);
 }
 
 
-#==============================================================================
-#
-# last()
-#
-# returns the value of 'LAST' in the current position HASH
-# 
-#==============================================================================
 
-sub last {
-	my $self = shift;
-	$self->_position_hash('LAST');
-}
-
-
-#==============================================================================
-#
-# count()
-#
-# returns the value of 'COUNT' in the current position HASH
-# 
-#==============================================================================
-
-sub count {
-	my $self = shift;
-	$self->_position_hash('COUNT');
-}
-
-
-#==============================================================================
-#
-# connect($dbi_connect, $dbi_user, $dbi_password)
-#
-# or
-#
-# connect( { data_source = 'dbi:driver:database' 
-#			 username    = 'foo' 
-#			 password    = 'bar' } )
-#
-# returns a database handle
-#
-#==============================================================================
-
-sub connect {
-	my $self = shift;
-	my $init = shift;
-	my @connect = ();
-
-	print STDERR "REF init is [", ref $init, "]\n" if $DEBUG;
-
-	if (ref $init eq 'HASH') {
-
-		my $dsn = $init->{ data_source } || 
-				  $init->{ connect } || 
-				  $init->{ dbi_connect } || 
-				  $init->{ db_connect } ||
-				  return $self->_throw('data source not defined');
-
-		push(@connect, $dsn);
-
-		# get the username parameter
-		push(@connect, 
-				$init->{ username } || 
-				$init->{ user } || 
-				$init->{ dbi_username } || 
-				$init->{ db_username } ||
-				'');
-
-		# get the password parameter
-		push(@connect, 
-				$init->{ password } || 
-				$init->{ passwd } || 
-				$init->{ dbi_password } || 
-				$init->{ db_password } ||
-				'');
-
-	} elsif ($init) {
-
-		@connect = ($init, @_);
-	
-	} else {
-
-		return $self->_throw('connection parameters not defined');
-
-	}
-
-	print STDERR "sub connect [", join('] [', @connect), "]\n"
-		if $DEBUG;
-
-	# call the internal connect method to do the connection
-	# return $self->_connect(@connect) || 
-		   # $self->_throw('connection failed');
-
-	$self->_connect(@connect);
-
-	if ($self->{ _DBH }) {
-		return '';
-		return ('', STATUS_OK);
-	};
-
-	return (undef, $self->_throw('connection failed'));
-
-}
-
-
-#==============================================================================
-#
-# sub disconnect()
+#------------------------------------------------------------------------
+# disconnect()
 #
 # Disconnects the current active database connection
-#
-#==============================================================================
+#------------------------------------------------------------------------
 
 sub disconnect {
-	my $self = shift;
-
-
-}
-
-#==============================================================================
-#
-# sub finish()
-#
-# Disconnects the current active database connection
-#
-#==============================================================================
-
-sub finish {
-	my $self = shift;
-
-
-}
-
-#==============================================================================
-#
-# sub prepare( $sql )
-#
-# Sets up the object ready to be iterated over by a template FOREACH
-#
-#==============================================================================
-
-sub prepare {
-	my $self    = shift;
-	my $sql     = shift || return (undef, STATUS_OK);
-
-	# get a database connection
-	my $dbh = $self->_connect() || return $self->_throw('connection failed');
-
-	my $clone = $self->_clone();
-
-	$clone->{ _STH } = $dbh->prepare($sql) || do {
-		warn "Failed to prepare [$sql]\n";
-		return $self->_throw("Prepare failed: $DBI::errstr");
-	};
-
-	# return $self;
-	return $clone;
+    my $self = shift;
+    $self->{ _DBH }->disconnect() if $self->{ _DBH };
 }
 
 
-#==============================================================================
-#
-# sub execute( @params )
-#
-#==============================================================================
 
-sub execute {
-	my $self = shift;
-	my @params = @_;
+#========================================================================
+#                    --- PRIVATE OBJECT METHODS ---
+#========================================================================
 
-	print STDERR "Execute called\n" if $DEBUG;
-
-	# get the current statement handle
-	my $sth = $self->{ _STH } || 
-		return $self->_throw("No query prepared");
-
-	$sth->execute(@params) || do {
-		# warn "Execute failed\n";
-		return $self->_throw("Execute failed: $DBI::errstr");
-	};
-
-	# return us as an iterator when we do an execute if all is OK
-	# this means that we can use execute directly in the template
-
-	# return ($self, STATUS_OK);
-	return $self;
-}
-
-
-#==============================================================================
-#
-# sub quote( $value [, $data_type ])
-#
-# returns a quoted string (correct for the connected database) from the value
-# passed in
-#
-#==============================================================================
-
-sub quote {
-	my $self = shift;
-	my $dbh = $self->_connect() || return $self->_throw('connection failed');
-	
-	# do the quote of the value
-	my $value = $dbh->quote(@_);
-
-	return wantarray ?  ($value, STATUS_OK) : $value;
-}
-
-
-#==============================================================================
-#
-# do(sql_statement)
-#
-# Does the sql statement without returning a record set
-#
-#==============================================================================
-
-sub do {
-	my $self    = shift;
-	my $sql     = shift || return (undef, STATUS_OK);
-
-	# get a database connection
-	my $dbh = $self->_connect() || return $self->_throw('connection failed');
-
-
-	return $dbh->do($sql) || $self->_throw('do failed');
-
-	my $result = $dbh->do($sql);
-
-	return ($result, STATUS_OK) if $result;
-
-	return $self->_throw('do failed');
-
-}
-
-#==============================================================================
-#
-# query(sql_query)
-#
-#
-#==============================================================================
-
-sub query {
-	my $self    = shift;
-	my $query   = shift;
-
-	# call prepare - which will return a clone
-	my ($clone, $status) = $self->prepare($query);
-
-	# if prepare fails it will be throwing an error which will be in $status
-	return $status unless $clone;
-
-	# call execute to action the query that we have prepared
-	return $clone->execute();
-
-}
-
-
-#==============================================================================
-#
-# get_first()
-# 
-# Is called when we are being used in an Iterator context
-#
-# What we do is to read the first row and put it into our row cache
-# We then call next to read then next row and return some data
-#
-#==============================================================================
-
-sub get_first {
-	my $self = shift;
-
-	# set some status variables into $self
-	$self->{ _POSITION }->{ FIRST } = 2;
-	$self->{ _POSITION }->{ LAST }  = 0;
-	$self->{ _POSITION }->{ COUNT } = 0;
-
-	print STDERR "Get first called\n" if $DEBUG;
-
-	# get the first row
-	$self->_fetchrow();
-
-	return $self->get_next();
-}
-
-
-#==============================================================================
-#
-# get_next()
-#
-# called repeatedly to access successive elements in the data (in our case
-# each record from the DBI handle)
-#
-#==============================================================================
-
-sub get_next {
-	my $self  = shift;
-
-	print STDERR "get_next called\n" if $DEBUG;
-
-	my $pos = $self->{ _POSITION };
-
-	# we are getting the next row so increment the count
-	$pos->{ COUNT } = $pos->{ COUNT } + 1;
-
-	# decrement the first inidcator
-	$pos->{ FIRST } = $pos->{ FIRST } - 1 if $pos->{ FIRST };
-
-	# get the row cache which is the data that will be returned
-	# if there is no row cache then we are about to return nothing so
-	# restore the sth state
-	my $hash = $self->{ _ROWCACHE } || do {
-		print STDERR "Nothing in rowcache so returning DONE\n" if $DEBUG;
-
-		# there is no more data so......
-		return (undef, STATUS_DONE);
-	};
-
-	# look ahead to the next row so that the rowcache is refilled
-	$self->_fetchrow();
-
-	# process any fixup handlers on our data
-	if (defined($self->{ _FIXUP })) {
-
-		# check each fixup handler
-		foreach (keys %{$self->{ _FIXUP }}) {
-
-			# if data with the same name as the fixup exists then call it
-			# to process the data
-			if (exists $hash->{ $_ }) {
-				$hash->{ $_ } = &{$self->{ _FIXUP }->{ $_ }}($hash->{ $_ });
-			}
-		}
-	}
-
-	# change 'undef' in the hash to prevent undef warnings
-	foreach (keys %$hash) {
-		print STDERR "Data [$_] -> [$hash->{ $_ }]\n" if $DEBUG;
-		$hash->{ $_ } = '' unless defined($hash->{$_});
-	}
-
-	# praise be . . . . we have data
-	return ($hash, STATUS_OK);
-}
-
-
-#==============================================================================
-#
-# sub _connect()
-#
-# Used internally to do the connecting to the DBI database.
-#
-#==============================================================================
+#------------------------------------------------------------------------
+# _connect($dsn, $user, $pass)
+#------------------------------------------------------------------------
 
 sub _connect {
-	my $self = shift;
-	my @connect = @_;
+    my $self    = shift;
+    my @connect = @_;
+    my $check   = join(':', @connect);
 
-	my $check = join(':', @connect);
 
-	# if we have no connect data assume the current connection
-	$check = $self->{ _DBH_CONNECT_DETAILS } unless $check;
+    # if we have no connect data assume the current connection
+    $check = $self->{ _DBH_CONNECT_DETAILS } unless @connect;
 
-	print STDERR "_connect [$check]\n" if $DEBUG;
+    # check for a defined database handle
+    if ($self->{ _DBH }) {
 
-	# check for a defined database handle
-	if ($self->{ _DBH }) {
+	# connection may be cached
+	return($self->{ _DBH })
+	    if $self->{ _DBH_CONNECT_DETAILS } eq $check;
 
-		print STDERR "We already have a connection\n" if $DEBUG;
+	$self->{ _DBH }->disconnect();
+	delete $self->{ _DBH_CONNECT_DETAILS };
+    }
+    elsif (! @connect) {
+	# no existing DBH, and no connect params provided
+	return undef;
+    }
 
-		return $self->{ _DBH } if $self->{ _DBH_CONNECT_DETAILS } eq $check;
+    $self->{ _DBH } = DBI->connect( $connect[0],
+				    $connect[1],
+				    $connect[2],
+				  { PrintError => 0 }) 
+	|| return $self->_throw("DBI connect failed: $DBI::errstr");
 
-		# if we get here then the current cached connection needs to be deleted
-		$self->{ _DBH }->disconnect();
-		delete $self->{ _DBH_CONNECT_DETAILS };
+    # store the details of the connection
+    $self->{ _DBH_CONNECT_DETAILS } = $check;
 
-	} elsif (! @connect) {
-
-		# no existing DBH and no connect params provided
-		$self->{ _DBH } = undef;
-		return undef;
-
-	}
-
-	DBI->trace(0);
-	print STDERR "Connecting for [$check]\n" if $DEBUG;
-	# if we make it to here then we need to make a new connection
-
-	$self->{ _DBH } = DBI->connect( $connect[0],
-									$connect[1],
-									$connect[2],
-			 					  { PrintError => 0 }) 
-					  || return $self->_throw('DBI->connect failed _connect');
-
-	# store the details of the connection
-	$self->{ _DBH_CONNECT_DETAILS } = $check;
-
-	return $self->{ _DBH };
-
-}
-
-#==============================================================================
-#
-# _clone_died
-#
-# When one of the clones dies then we need to pop the position hash so that
-# we are returning the correct position information
-#
-#==============================================================================
-
-sub _clone_died {
-	my $self = shift;
-
-	shift( @{ $self->{ _POSITION } } );
-
+    return $self->{ _DBH };
 }
 
 
-#==============================================================================
+#------------------------------------------------------------------------
+# _throw($error)
 #
-# _clone()
-#
-# Create a clone from ourself that can safely be used to start a new query
-#
-#==============================================================================
-
-sub _clone {
-	my $self = shift;
-	my $class = ref($self) || return;
-
-	my $clone = {};
-
-	foreach (qw(_CONTEXT _DBH _FIXUP _DBH_CONNECT_DETAILS)) {
-		$clone->{ $_ } = $self->{ $_ } if exists $self->{ $_ };
-	}
-
-	# created a clone
-	$clone->{ _CLONE } = 1;
-
-	# give it a family tree
-	$clone->{ _PARENT } = $self;
-
-	$clone->{ _POSITION } = {
-		FIRST => 0,
-		LAST  => 0,
-		COUNT => 0 };
-
-	bless $clone, $class;
-
-	# print "Created clone position [", $clone->{ _POSITION }, "]\n";
-
-	# save the location of the current child's position
-	unshift( @{ $self->{ _POSITION } }, $clone->{ _POSITION } );
-
-	print STDERR "Creating clone [$clone]\n" if $DEBUG;
-
-	return $clone;
-
-}
-
-#==============================================================================
-#
-# _position_hash($name)
-#
-# returns the named value from the current position HASH
-#
-#==============================================================================
-
-sub _position_hash {
-	my $self = shift;
-	my $name = shift || return;
-
-	print "_position_hash($name) called\n" if $DEBUG;
-
-	# get the position
-	my $pos = $self->{ _POSITION } || return;
-
-	# if what we have is an arrayref then this is the factory so
-	# get the first element (which should be a HASH)
-	if (ref($pos) eq 'ARRAY') {
-		$pos = @$pos[0];
-	}
-
-	# check that we now have a HASH
-	unless (ref($pos) eq 'HASH') {
-		return;
-	}
-
-	return $pos->{ $name };
-}
-
-
-#==============================================================================
-#
-# _fetchrow()
-#
-#==============================================================================
-
-sub _fetchrow {
-	my $self = shift;
-
-	print STDERR "_fetchrow called\n" if $DEBUG;
-
-	# clear the rowcache
-	$self->{ _ROWCACHE } = undef;
-
-	# get the previous copy of the Satement Handle or we consider our work done
-	my $sth = $self->{ _STH } || do {
-		print STDERR "Failed to get STH\n" if $DEBUG;
-		return;
-	};
-
-	my $hash = $sth->fetchrow_hashref() || do {
-
-		$self->{ _POSITION }->{ LAST } = 1;
-		print STDERR "Failed to get any data from the STH\n" if $DEBUG;
-		# we failed to get any data from the sth so......
-		# finish the sth
-		$sth->finish();
-
-		# and then return DONE
-		return;
-
-	};
-
-	# put the data into the rowcache
-	$self->{ _ROWCACHE } = $hash;
-
-	return;
-}
-
-
-#==============================================================================
-# sub _throw($error)
-#
-# Returns an error either using the context that we got when we were created
-# otherwise we create a new exception and return that
-#
-#==============================================================================
+# Stores the error internally in ERRSTR and returns an (undef, exception)
+# pair.
+#------------------------------------------------------------------------
 
 sub _throw {
-	my $self = shift;
-	# my $type = shift || return undef;
-	my $err  = shift || return undef;
-
-	# print STDERR "Throw called\n";
+    my $self = shift;
+    my $err  = shift || return undef;
 
 	$self->{ ERRSTR } = $err;
 
-	return (undef, Template::Exception->new('DBI', $err) );
+	if ($Template::VERSION ge '2') {
+   		die Template::Exception->new('DBI', $err);
+	} else {
+		return (undef, Template::Exception->new('DBI', $err) );
+	}
+}
 
+
+#========================================================================
+# Template::Plugin::DBI::Query
+#========================================================================
+
+package Template::Plugin::DBI::Query;
+use base qw( Template::Plugin );
+
+sub new {
+    my ($class, $sth, $parent) = @_;
+    bless \$sth, $class;
+}
+
+sub execute {
+    my $self = shift;
+
+    $$self->execute(@_) 
+	|| return $self->_throw("DBI execute failed: $DBI::errstr");
+
+    Template::Plugin::DBI::Iterator->new($$self);
+}
+
+
+
+#========================================================================
+# Template::Plugin::DBI::Iterator;
+#========================================================================
+
+package Template::Plugin::DBI::Iterator;
+
+use Template::Iterator;
+use base qw( Template::Iterator );
+use vars qw( $AUTOLOAD  $DEBUG);
+
+sub new {
+    my ($class, $sth, $params) = @_;
+    my $self = bless { 
+	_STH => $sth,
+    }, $class;
+
+    return $self;
+}
+
+sub DESTROY {
+    my $self = shift;
+    my $sth  = $self->{ _STH };
+    $sth && $sth->finish();
+}
+
+
+sub AUTOLOAD {
+    my $self   = shift;
+    my $method = $AUTOLOAD;
+
+    $method =~ s/.*:://;
+    return if $method eq 'DESTROY';
+
+    $method =~ tr/a-z/A-Z/;
+
+    print STDERR "AUTOLOAD $method => ", $self->{ $method }, "\n" if $DEBUG;
+
+    return exists $self->{ $method }
+	? $self->{ $method }
+	: undef;
+}
+
+
+#------------------------------------------------------------------------
+# get_first()
+#
+# Initialises iterator to read from statement handle.  We maintain a 
+# one-record lookahead buffer to allow us to detect if the current 
+# record is the last in the series.
+#------------------------------------------------------------------------
+
+sub get_first {
+    my $self = shift;
+
+    # set some status variables into $self
+    $self->{ FIRST } = 2;
+    $self->{ LAST }  = 0;
+    $self->{ COUNT } = 0;
+
+    print STDERR "get_first() called\n" if $DEBUG;
+
+    # get the first row
+    $self->_fetchrow();
+
+    print STDERR "get_first() calling get_next()\n" if $DEBUG;
+
+    return $self->get_next();
+}
+
+
+#------------------------------------------------------------------------
+# get_next()
+#
+# Called to read remaining result records from statement handle.
+#------------------------------------------------------------------------
+
+sub get_next {
+    my $self = shift;
+    my ($data, $fixup);
+
+    print STDERR "get_next() called\n" if $DEBUG;
+
+    # we are getting the next row so increment the count
+    $self->{ COUNT } = $self->{ COUNT } + 1;
+
+    # decrement the 'first-record' flag
+    $self->{ FIRST }-- if $self->{ FIRST };
+
+    # we should have a row already cache in _ROWCACHE
+    return (undef, Template::Constants::STATUS_DONE)
+	unless $data = $self->{ _ROWCACHE };
+
+    print STDERR "get_next() calling _fetchrow()\n" if $DEBUG;
+
+    # look ahead to the next row so that the rowcache is refilled
+    $self->_fetchrow();
+
+    # process any fixup handlers on the data
+    if (defined($fixup = $self->{ _FIXUP })) {
+	foreach (keys %$fixup) {
+	    $data->{ $_ } = &{ $fixup->{$_} }($data->{ $_ })
+		if exists $data->{ $_ };
+	}
+    }
+
+    print STDERR "get_next() returning $data (STATUS_OK)\n" if $DEBUG;
+
+    return ($data, Template::Constants::STATUS_OK);
+}
+
+
+
+#------------------------------------------------------------------------
+# _fetchrow()
+#
+# Retrieve a record from the statement handle and store in row cache.
+#------------------------------------------------------------------------
+
+sub _fetchrow {
+    my $self = shift;
+    my $sth  = $self->{ _STH };
+
+    my $data = $sth->fetchrow_hashref() || do {
+	$self->{ LAST } = 1;
+	$self->{ _ROWCACHE } = undef;
+	$sth->finish();
+	return;
+    };
+    $self->{ _ROWCACHE } = $data;
+    return;
 }
 
 1;
@@ -740,100 +548,159 @@ Template::Plugin::DBI - Template Plugin interface to the DBI.pm module
 
     [% USE DBI('dbi:driver:database', 'username', 'password') %]
 
-    [% FOREACH row = DBI.query( 'select col from table' ) %]
+    [% USE DBI(data_source = 'dbi:driver:database',
+               username    = 'username', 
+               password    = 'password') %]
 
-    Here comes the data [% row.col %]
+    [% FOREACH item = DBI.query( 'SELECT rows FROM table' ) %]
+       Here's some row data: [% item.field %]
+    [% END %]
 
+    [% DBI.prepare('SELECT * FROM user WHERE manager = ?') %]
+    [% FOREACH user = DBI.execute('sam') %]
+       ...
+
+    [% query = DBI.prepare('SELECT * FROM user WHERE manager = ?') %]
+    [% FOREACH user = query.execute('sam') %]
+       ...
+
+    [% IF DBI.do("DELETE FROM users WHERE uid = 'sam'") %]
+       Oh No!  The user was deleted!
     [% END %]
 
 =head1 DESCRIPTION
 
-This plugin provides an interface between a Template processor and DBI.  This
-provides a simple method of including data from a DBI data source into a 
-template to be processed by the Template module.
+This Template Toolkit plugin module provides an interface to the Perl
+DBI/DBD modules, allowing you to integrate SQL queries into your template
+documents.
 
-The DBI object can be initialised as follows:
+A DBI plugin object can be created as follows:
 
     [% USE DBI %]
 
-This creates an uninitialised DBI object.  It can be initialised when it is 
-created by passing parameters that will be passed to the DBI connect call.
+This creates an uninitialised DBI object.  You can then open a connection
+to a database using the connect() method.
+
+    [% DBI.connect('dbi:driver:database', 'username', 'password') %]
+
+The DBI plugin can be initialised when created by passing parameters to
+the constructor, called from the USE directive.
 
     [% USE DBI('dbi:driver:database','username','password') %]
 
-This will create a fully initialised DBI object.
+Methods can then be called on the plugin object using the familiar dotted
+notation.  e.g.
+
+    [% FOREACH item = DBI.query( 'SELECT rows FROM table' ) %]
+       Here's some row data: [% item.field %]
+    [% END %]
+
+See L<OBJECT METHODS> below for further details.
+
+An alternate variable name can be provided for the plugin as per regular
+Template Toolkit syntax:
+
+    [% USE mydb = DBI('dbi:driver:database','username','password') %]
+
+    [% FOREACH item = mydb.query( 'SELECT rows FROM table' ) %]
+       Here's some row data: [% item.field %]
+    [% END %]
+
+The disconnect() method can be called to explicitly disconnect the current
+database.  This is called automatically when the plugin goes out of scope.
 
 =head1 OBJECT METHODS
 
-=head2 connect
+=head2 connect($data_source, $username, $password)
 
-connect(data_source, username, password)
-connect(data_source = 'dbi:driver:database' username = 'foo' password = 'bar' )
+Establishes a database connection.  This method accepts both positional 
+and named parameter syntax.  e.g. 
 
-Establishes a database connection.
+    [% db = DBI.connect(data_source, username, password) %]
+    [% db = DBI.connect(data_source = 'dbi:driver:database'
+                        username    = 'foo' 
+                        password    = 'bar' ) %]
 
-The connect method accepts both the positional and named parameter syntax as
-shown.  
+The connect method allows you to connect to a data source explicitly.
+It can also be used to reconnect an exisiting object to a different
+data source.
 
-The connect method provides for connecting to a data source explicitly, this 
-can be used to reconnect an exisiting object to a different data source.
+=head2 query($sql)
 
-=head2 query( sql query string )
+This method submits an SQL query to the database and creates an iterator 
+object to return the results.  This may be used directly in a FOREACH 
+directive as shown below.  Data is automatically fetched a row at a time
+from the query result set as required for greater efficiency.
 
-The query method returns data from the database given the provided sql query 
-string.  It does this in an efficient manner by only retrieving a single row
-at a time and returning this data to the Template through the 
-Template::Iterator interface.  This means that you can do this:
-
-    [% FOREACH DBI.query('select * from users') %]
-
-    Each row can be processed here
-
+    [% FOREACH row = DBI.query('select * from users') %]
+       Each [% row.whatever %] can be processed here
     [% END %]
 
-=head2 prepare
+=head2 prepare($sql)
 
-Prepare a query for later execution.  This will return a clone of the current
-Template::Plugin::DBI object.  You can use this thus:
+Prepare a query for later execution.  This returns a compiled query
+object (of the Template::Plugin::DBI::Query class) on which the
+execute() method can subsequently be called.  The compiled query is
+also cached internally, allowing the execute() method call to also be
+made on the parent DBI object.
 
-[% user_query = DBI.prepare("select * from users where id = ?") %]
+    [% user_query = DBI.prepare(
+		      'SELECT * FROM users WHERE id = ?') %]
 
-In order to get data back from the database for the query you should use
-execute (see below)
+=head2 execute(@args)
 
-=head2 execute
+Execute a previously prepared query.  This method can be called on the 
+parent DBI object to execute the query most recently compiled via 
+prepare().  It can also be called directly on the query object returned
+by prepare().  Returns an iterator object which can be used directly in
+a FOREACH directive.
 
-Execute a previously prepared query.  Given the example above you would call
-this with a FOREACH to select each of the records retuned.
+    [% user_query = DBI.prepare(
+		      'SELECT * FROM users WHERE manager = ?') %]
 
-[% FOREACH user = user_query.execute('sam') %]
-[% user.name %]
-[% END %]
+    [% FOREACH user = user_query.execute('sam') %]
+       [% user.name %]
+    [% END %]
 
-=head2 do
+    [% FOREACH user = DBI.execute('sam') %]
+       [% user.name %]
+    [% END %]
+
+
+=head2 do($sql)
 
 Do executes a sql statement where there will be no records returned.  It will
 return true if the statement was successful
 
-[% IF DBI.do("delete from users where uid = 'sam'") %]
-Oh No the user was deleted
-[% END %]
+    [% IF DBI.do("DELETE FROM users WHERE uid = 'sam'") %]
+       Oh No the user was deleted
+    [% END %]
 
-=head2 quote
+=head2 quote($value, $type)
 
-=head1 REQUIRES
+Calls the quote() method on the underlying DBI handle to quote the value
+specified in the appropriate manner for its type.
 
-Perl 5.005, Template-Toolkit 1.00, DBI
+=head2 disconnect()
+
+Disconnects the current database.
+
+=head2 error()
+
+Returns the current error value, if any.
+
+=head1 PRE-REQUISITES
+
+Perl 5.005, Template-Toolkit 2.00-beta3, DBI 1.02
 
 =head1 SEE ALSO
 
-perldoc Template
-
-perldoc DBI
+For general information on the Template Toolkit and DBI modules, see
+L<Template> and L<DBI>.
 
 =head1 AUTHOR
 
-Simon A Matthews, sam@knowledgepool.com
+Simon A Matthews, E<lt>sam@knowledgepool.comE<gt>
 
 =head1 COPYRIGHT
 
@@ -842,23 +709,33 @@ Copyright (C) 1999 Simon Matthews.  All Rights Reserved
 This module is free software; you can redistribute it and/or
 modify it under the same terms as Perl itself.
 
+=begin todo
 
 =head1 STILL TO DO
 
-FIXUP Handlers
-	- how to install
-	- ALL type to process all
-	- UNDEF magic should be optional ?
+=over 4
 
-DBI method access
-	- commit ?
-	- rollback ?
+=item FIXUP Handlers
 
-Tests
+  - how to install
+  - ALL type to process all
+  - UNDEF magic should be optional ?
 
-DBI errors being thrown
+=item DBI method access
 
-Statement and DBH methods
+  - commit ?
+  - rollback ?
+
+=item Tests
+
+=item DBI errors being thrown
+
+=item Statement and DBH methods
+
+=back
+
+=end
+
 
 
 

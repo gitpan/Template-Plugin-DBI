@@ -1,6 +1,21 @@
+#============================================================= -*-perl-*-
+#
+# t/basic.t
+#
+# basic test of the operation of the plugin using dbi:ExampleP
+# this returns a list of files in the current directory
+#
+# Written by by Simon Matthews <sam@knowledgepool.com>
+#
+# This is free software; you can redistribute it and/or modify it
+# under the same terms as Perl itself.
+#
+# $Id: basic.t,v 1.2 2000/09/20 07:26:07 sam Exp $
+#
+#========================================================================
 
 use strict;
-# use lib qw( . ./t ../blib/lib blib/lib);
+# use lib qw( ../blib/lib blib/lib);
 
 use Template;
 
@@ -30,7 +45,7 @@ sub ok ($$) {
 my $proc =<<EOF;
 [%- USE DBI('dbi:ExampleP:') -%]
 [%- FOREACH entry = DBI.query("select name from $dir") -%]
-%%- entry.name %%
+[%- entry.name %]
 [% END -%]
 EOF
 

@@ -1,17 +1,18 @@
 #============================================================= -*-perl-*-
 #
-# t/nested.t
+# t/error.t
 #
-# Test script testing nested queries.
+# Test script testing error handling.
 #
-# Written by Andy Wardley <abw@cre.canon.co.uk>
+# This script is specific to version 1 of template. See error2.t for 
+# version 2 tests.
 #
-# Modifications by Simon Matthews <sam@knowledgepool.com>
+# Written by Simon Matthews <sam@knowledgepool.com>
 #
 # This is free software; you can redistribute it and/or modify it
 # under the same terms as Perl itself.
 #
-# $Id: error.t,v 1.1 1999/12/17 06:40:06 sam Exp $
+# $Id: error.t,v 1.3 2000/09/20 07:29:45 sam Exp $
 #
 #========================================================================
 
@@ -26,6 +27,11 @@ $DEBUG = 0;
 
 my $dsn = $ENV{ DBI_DSN } || do {
 	warn "DBI_DSN should be set to point to a test database\n";
+	print "1..1\nnot ok\n";
+	exit;
+};
+
+$Template::VERSION ge '2' && do {
 	print "1..1\nnot ok\n";
 	exit;
 };
@@ -110,11 +116,4 @@ __DATA__
 [% END -%]
 -- expect --
 
-Error is: Execute failed: Table 'test.foobarbaz' doesn't exist
--- test --
-SAM
--- expect --
-SAM
-
-
-
+Error is: DBI execute failed: Table 'test.foobarbaz' doesn't exist

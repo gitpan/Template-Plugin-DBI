@@ -1,17 +1,15 @@
 #============================================================= -*-perl-*-
 #
-# t/nested.t
+# t/do.t
 #
-# Test script testing nested queries.
+# Test script testing do queries.
 #
-# Written by Andy Wardley <abw@cre.canon.co.uk>
-#
-# Modifications by Simon Matthews <sam@knowledgepool.com>
+# Written by Simon Matthews <sam@knowledgepool.com>
 #
 # This is free software; you can redistribute it and/or modify it
 # under the same terms as Perl itself.
 #
-# $Id: do.t,v 1.1 1999/12/17 06:40:06 sam Exp $
+# $Id: do.t,v 1.2 2000/04/26 16:18:46 sam Exp $
 #
 #========================================================================
 

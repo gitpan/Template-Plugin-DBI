@@ -1,17 +1,15 @@
 #============================================================= -*-perl-*-
 #
-# t/nested.t
+# t/prepare.t
 #
-# Test script testing nested queries.
+# Test script testing prepare queries.
 #
-# Written by Andy Wardley <abw@cre.canon.co.uk>
-#
-# Modifications by Simon Matthews <sam@knowledgepool.com>
+# Written by Simon Matthews <sam@knowledgepool.com>
 #
 # This is free software; you can redistribute it and/or modify it
 # under the same terms as Perl itself.
 #
-# $Id: prepare.t,v 1.1 1999/12/17 06:40:08 sam Exp $
+# $Id: prepare.t,v 1.3 2000/09/20 07:32:16 sam Exp $
 #
 #========================================================================
 
@@ -105,7 +103,7 @@ __DATA__
 [% USE DBI(dsn,user,pass) -%]
 [% users = DBI.prepare("select * from usr where id = ?") -%]
 [% FOREACH uid = ['sam' 'abw'] -%]
-[% FOREACH user = users.execute( $uid ) -%]
+[% FOREACH user = users.execute( uid ) -%]
 *  [% user.id %] - [% user.name %]
 [% END %]
 [%- END %]
@@ -118,8 +116,8 @@ __DATA__
 [% users = DBI.prepare("select * from usr where id = ?") -%]
 [% groups = DBI.prepare("select * from grp where id = ?") -%]
 [% FOREACH uid = ['sam' 'abw' 'hans'] -%]
-[% FOREACH user = users.execute( $uid ) -%]
-*  [% user.id %] - [% FOREACH group = groups.execute( $user.grp ) %][% group.name %][% END %]
+[% FOREACH user = users.execute( uid ) -%]
+*  [% user.id %] - [% FOREACH group = groups.execute( user.grp ) %][% group.name %][% END %]
 [% END %]
 [%- END %]
 

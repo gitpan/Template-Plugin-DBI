@@ -1,3 +1,17 @@
+#============================================================= -*-perl-*-
+#
+# t/first.t
+#
+# Test script testing first and last on loops
+#
+# Written by Simon Matthews <sam@knowledgepool.com>
+#
+# This is free software; you can redistribute it and/or modify it
+# under the same terms as Perl itself.
+#
+# $Id: first.t,v 1.2 2000/09/20 07:30:27 sam Exp $
+#
+#========================================================================
 
 use strict;
 # use lib qw( . ./t ../blib/lib blib/lib);
@@ -31,7 +45,7 @@ my $proc =<<EOF;
 [%- USE DBI('dbi:ExampleP:') -%]
 [%- FOREACH entry = DBI.query("select name from $dir") -%]
 [%- IF loop.first -%]FIRST[% END %]
-%%- entry.name %%
+[%- entry.name %]
 [%- IF loop.last -%]LAST[% END %]
 [% END -%]
 EOF

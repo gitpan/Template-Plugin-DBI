@@ -1,17 +1,15 @@
 #============================================================= -*-perl-*-
 #
-# t/nested.t
+# t/count.t
 #
-# Test script testing nested queries.
+# Test script testing loop counters on queries
 #
-# Written by Andy Wardley <abw@cre.canon.co.uk>
-#
-# Modifications by Simon Matthews <sam@knowledgepool.com>
+# Written by Simon Matthews <sam@knowledgepool.com>
 #
 # This is free software; you can redistribute it and/or modify it
 # under the same terms as Perl itself.
 #
-# $Id: count.t,v 1.1 1999/12/17 06:40:05 sam Exp $
+# $Id: count.t,v 1.3 2000/09/20 07:28:27 sam Exp $
 #
 #========================================================================
 
@@ -117,11 +115,11 @@ __DATA__
 [% USE DBI(dsn,user,pass) -%]
 [% FOREACH group = DBI.query('SELECT * FROM grp 
                               ORDER BY id') -%]
-[% DBI.count %] Group: [% group.id %]
+[% loop.count %] Group: [% group.id %]
 [% FOREACH user = DBI.query("SELECT * FROM usr 
                              WHERE grp='$group.id'
                              ORDER BY id") -%]
- [% DBI.count %] User: [% user.name %] ([% user.id %])
+ [% loop.count %] User: [% user.name %] ([% user.id %])
 [% END -%]
 
 [% END %]

@@ -1,17 +1,15 @@
 #============================================================= -*-perl-*-
 #
-# t/nested.t
+# t/connect.t
 #
-# Test script testing nested queries.
+# Test script testing delayed connection
 #
-# Written by Andy Wardley <abw@cre.canon.co.uk>
-#
-# Modifications by Simon Matthews <sam@knowledgepool.com>
+# Written by Simon Matthews <sam@knowledgepool.com>
 #
 # This is free software; you can redistribute it and/or modify it
 # under the same terms as Perl itself.
 #
-# $Id: connect.t,v 1.1 1999/12/17 06:40:04 sam Exp $
+# $Id: connect.t,v 1.2 2000/09/20 07:26:56 sam Exp $
 #
 #========================================================================
 
@@ -103,8 +101,12 @@ sub sql_query {
 #------------------------------------------------------------------------
 
 __DATA__
+nothing [%- USE DBI( dsn, user, pass) %]
+-- expect --
+nothing 
+-- test --
 [% USE DBI -%]
-nothing [%- DBI.connect( $dsn, $user, $pass ) %]
+nothing [%-  DBI.connect( dsn, user, pass ) %]
 -- expect --
 nothing 
 
