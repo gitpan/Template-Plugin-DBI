@@ -1,0 +1,13 @@
+DBI.pm
+MANIFEST
+Makefile.PL
+example
+example2
+t/basic.t
+t/connect.t
+t/count.t
+t/do.t
+t/error.t
+t/first.t
+t/nested.t
+t/prepare.t

@@ -1,0 +1,38 @@
+[% use DBI('dbi:mysql:catalog') %]
+[% CATCH DBI %]
+DBI Error $DBI.errstr 
+[% STOP %]
+
+[% END %]
+
+[% FOREACH DBI.query('select * from brochures') %]
+Brochure [% brochure_code %] - [% brochure_name -%]
+[% END %]
+
+[% use foo = DBI('dbi:mysql:security') %]
+
+[% FOREACH one = foo.query('select code from course limit 5') %]
+[% IF loop.first %]
+<table>
+[% END -%]
+<tr>
+	<td>
+		%% loop.count %% - Course [% one.code %]
+	</td>
+</tr>
+[%- IF loop.last %]
+</table>
+[% END -%]
+[% END %]
+
+[% FOREACH foo.query("select * from user where u_uid = 'sam'") %]
+[%- IF loop.first -%]
+First Line
+
+[%- END -%]
+Name [% u_first_name %]
+[%- IF loop.last -%]
+
+Last Line
+[%- END -%]
+[% END %]
